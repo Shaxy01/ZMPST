@@ -137,6 +137,7 @@ int main() {
     }
 
     // TODO: Implementacja algorytmu zachłannego
+    //działa
 
     return 0;
 }
