@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <filesystem>
+#include <iomanip>
 
 using namespace std;
 
@@ -92,6 +93,7 @@ void loadPaths(const string& filePath, Network& network) {
 // Funkcja wczytująca żądania z folderu w zadanym zakresie
 vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile) {
     vector<Demand> demands;
+    Demand lastDemand; // Zmienna do przechowywania ostatniego żądania
 
     for (int i = startFile; i <= endFile; ++i) {
         string filePath = folderPath + "/" + to_string(i) + ".txt";
@@ -102,15 +104,48 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
         }
 
         Demand demand;
-        file >> demand.source >> demand.destination;
+        string line;
 
-        double bitrate;
-        while (file >> bitrate) {
-            demand.bitrates.push_back(bitrate);
+        // Wczytaj źródło i cel
+        if (getline(file, line)) {
+            demand.source = stoi(line);
+        }
+        if (getline(file, line)) {
+            demand.destination = stoi(line);
+        }
+
+        // Ignoruj trzecią linię (literę `b`)
+        getline(file, line);
+
+        // Wczytaj bitrate
+        while (getline(file, line)) {
+            try {
+                demand.bitrates.push_back(stod(line)); // Konwersja string -> double
+            } catch (const invalid_argument&) {
+                cerr << "Nieprawidłowa wartość bitrate w pliku: " << filePath << endl;
+            }
+        }
+
+        if (!demand.bitrates.empty()) {
+            // Wyświetl pierwszy i ostatni bitrate z pliku
+            cout << "Plik: " << filePath << "\n";
+            cout << "Pierwszy bitrate: " << demand.bitrates.front()
+                 << ", Ostatni bitrate: " << demand.bitrates.back() << "\n";
+            lastDemand = demand; // Zapisz ostatnio wczytane żądanie
+        } else {
+            cout << "Plik: " << filePath << " - brak danych bitrate.\n";
         }
 
         demands.push_back(demand);
         file.close();
+    }
+
+    // Wyświetl wszystkie bitrate'y z ostatniego wczytanego pliku
+    if (!lastDemand.bitrates.empty()) {
+        cout << "\nFragment tabeli (bitrate'y z ostatniego pliku):\n";
+        for (size_t i = 0; i < lastDemand.bitrates.size(); ++i) {
+            cout << "Iteracja " << i + 1 << ": " << lastDemand.bitrates[i] << "\n";
+        }
     }
 
     return demands;
@@ -122,22 +157,18 @@ int main() {
     int startFile = 0;
     int endFile = 150; // Możesz zmieniać zakres wczytywanych plików
 
+    // Ustaw pełną precyzję dla wszystkich wyjść
+    cout << std::fixed << std::setprecision(15);
+
     // Wczytaj żądania z folderu w zadanym zakresie
     vector<Demand> demands = loadDemands(demandsFolder, startFile, endFile);
 
-    // Debug: Wyświetlanie danych
-    cout << "Liczba wczytanych żądań: " << demands.size() << "\n";
+    cout << "\nLiczba wczytanych żądań: " << demands.size() << "\n";
     for (const auto& demand : demands) {
         cout << "Źródło: " << demand.source << ", Cel: " << demand.destination << "\n";
-        cout << "Bitrate: ";
-        for (double b : demand.bitrates) {
-            cout << b << " ";
-        }
-        cout << "\n";
+        cout << "Liczba iteracji bitrate: " << demand.bitrates.size() << "\n";
     }
-
-    // TODO: Implementacja algorytmu zachłannego
-    //działaaaaaa
 
     return 0;
 }
+
