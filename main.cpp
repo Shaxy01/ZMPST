@@ -281,7 +281,7 @@ int main() {
 
     int totalTransceivers = greedyAllocation(network, demands, iterations);
 
-    cout << "\nŚrednia liczba transceiverów: " << totalTransceivers/288 << "\n";
+    cout << "\nŚrednia liczba transceiveróww: " << totalTransceivers/288 << "\n";
 
     return 0;
 }
