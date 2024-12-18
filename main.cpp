@@ -10,7 +10,6 @@
 #include <windows.h>
 #endif
 
-
 using namespace std;
 
 // Struktury danych
@@ -22,7 +21,6 @@ struct Demand {
     Demand() = default; // Domyślny konstruktor
     Demand(int src, int dest) : source(src), destination(dest) {}
 };
-
 
 struct Path {
     vector<int> links; // Ścieżka binarna
@@ -47,6 +45,7 @@ struct OpticalChannel {
     int destination;            // Węzeł docelowy
     double capacity;            // Dostępna pojemność kanału
     bool active = false;        // Czy kanał jest aktywny
+    vector<int> activeDemands;  // Lista żądań przypisanych do kanału
 
     OpticalChannel(int src, int dest, double cap)
         : source(src), destination(dest), capacity(cap), active(true) {}
@@ -75,20 +74,28 @@ int greedyAllocation(const Network& network, vector<Demand>& demands, int iterat
     vector<OpticalChannel> channels; // Lista kanałów optycznych
     int totalTransceivers = 0;       // Liczba aktywnych transceiverów
 
-    // Tabela modulacji
-    vector<Modulation> modulationTable = {
-        {"QPSK", 0.0, 200.0, 6},      // QPSK: bez limitu odległości, 200 Gbps, 6 slotów
-        {"8-QAM", 0.0, 400.0, 9},     // 8-QAM: bez limitu odległości, 400 Gbps, 9 slotów
-        {"16-QAM", 800.0, 400.0, 6},  // 16-QAM: do 800 km, 400 Gbps, 6 slotów
-        {"16-QAM", 1600.0, 600.0, 9}, // 16-QAM: do 1600 km, 600 Gbps, 9 slotów
-        {"32-QAM", 200.0, 800.0, 9}   // 32-QAM: do 200 km, 800 Gbps, 9 slotów
-    };
-
     for (int iter = 0; iter < iterations; ++iter) {
         cout << "Iteracja: " << iter + 1 << "\n";
 
+        // Aktualizacja pojemności kanałów w oparciu o aktualne bitrate żądań
+        for (auto& channel : channels) {
+            double usedCapacity = 0.0;
+            for (int demandId : channel.activeDemands) {
+                usedCapacity += demands[demandId].bitrates[iter];
+            }
+            channel.capacity = channel.capacity - usedCapacity;
+        }
+
+        // Usuń puste kanały
+        channels.erase(remove_if(channels.begin(), channels.end(),
+                                 [](const OpticalChannel& channel) {
+                                     return channel.activeDemands.empty() || channel.capacity <= 0.0;
+                                 }),
+                       channels.end());
+
         // Obsługa żądań w iteracji
-        for (auto& demand : demands) {
+        for (size_t demandIdx = 0; demandIdx < demands.size(); ++demandIdx) {
+            auto& demand = demands[demandIdx];
             double distance = network.distanceMatrix[demand.source][demand.destination];
             double bitrate = demand.bitrates[iter];
             bool allocated = false;
@@ -110,38 +117,33 @@ int greedyAllocation(const Network& network, vector<Demand>& demands, int iterat
                 continue;
             }
 
-            // Sprawdź istniejące kanały i przypisz żądanie, jeśli jest miejsce
+            // Próbuj przydzielić żądanie do istniejących kanałów
             for (auto& channel : channels) {
                 if (channel.source == demand.source && channel.destination == demand.destination &&
                     channel.capacity >= bitrate) {
-                    channel.capacity -= bitrate; // Zaktualizuj pojemność kanału
+                    channel.capacity -= bitrate;
+                    channel.activeDemands.push_back(demandIdx);
                     allocated = true;
-                    break; // Jeśli znaleziono odpowiedni kanał, nie tworzymy nowego
+                    break; // Jeśli znaleziono odpowiedni kanał, zakończ pętlę
                 }
             }
 
             // Jeśli nie znaleziono kanału, utwórz nowy
             if (!allocated) {
-                // Tworzenie nowego kanału tylko wtedy, gdy żadne inne nie spełnia wymagań
                 OpticalChannel newChannel(demand.source, demand.destination, selectedModulation.bitrate);
                 newChannel.capacity -= bitrate;
+                newChannel.activeDemands.push_back(demandIdx);
                 channels.push_back(newChannel);
-                totalTransceivers += 2; // Dwa nowe transceivery
+                totalTransceivers += 2; // Dodaj dwa nowe transceivery
             }
         }
 
-        // Usuń puste kanały
-        channels.erase(remove_if(channels.begin(), channels.end(),
-                                 [](const OpticalChannel& channel) { return channel.capacity <= 0.0; }),
-                       channels.end());
-
-        // Wyświetl aktywne kanały
+        // Wyświetl liczbę aktywnych kanałów
         cout << "Liczba aktywnych kanałów po iteracji " << iter + 1 << ": " << channels.size() << "\n";
     }
 
     return totalTransceivers;
 }
-
 
 // Funkcja wczytująca topologię z pliku .net
 Network loadNetwork(const string& filePath) {
@@ -176,18 +178,17 @@ void loadPaths(const string& filePath, Network& network) {
     int totalPaths;
     file >> totalPaths;
 
-    // Poprawiona inicjalizacja rozmiaru routingPaths
     network.routingPaths.resize(network.nodeCount, vector<vector<Path>>(network.nodeCount));
 
     for (int src = 0; src < network.nodeCount; ++src) {
         for (int dest = 0; dest < network.nodeCount; ++dest) {
-            for (int k = 0; k < 30; ++k) { // Zakładamy maksymalnie 30 ścieżek
+            for (int k = 0; k < 30; ++k) {
                 Path path;
                 path.links.resize(network.linkCount);
                 for (int l = 0; l < network.linkCount; ++l) {
                     file >> path.links[l];
                 }
-                if (k < 10) { // Wybieramy tylko pierwsze 10 ścieżek
+                if (k < 10) {
                     network.routingPaths[src][dest].push_back(path);
                 }
             }
@@ -200,7 +201,7 @@ void loadPaths(const string& filePath, Network& network) {
 // Funkcja wczytująca żądania z folderu w zadanym zakresie
 vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile) {
     vector<Demand> demands;
-    Demand lastDemand; // Zmienna do przechowywania ostatniego żądania
+    Demand lastDemand;
 
     for (int i = startFile; i <= endFile; ++i) {
         string filePath = folderPath + "/" + to_string(i) + ".txt";
@@ -213,7 +214,6 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
         Demand demand;
         string line;
 
-        // Wczytaj źródło i cel
         if (getline(file, line)) {
             demand.source = stoi(line);
         }
@@ -221,24 +221,21 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
             demand.destination = stoi(line);
         }
 
-        // Ignoruj trzecią linię (literę `b`)
         getline(file, line);
 
-        // Wczytaj bitrate
         while (getline(file, line)) {
             try {
-                demand.bitrates.push_back(stod(line)); // Konwersja string -> double
+                demand.bitrates.push_back(stod(line));
             } catch (const invalid_argument&) {
                 cerr << "Nieprawidłowa wartość bitrate w pliku: " << filePath << endl;
             }
         }
 
         if (!demand.bitrates.empty()) {
-            // Wyświetl pierwszy i ostatni bitrate z pliku
             cout << "Plik: " << filePath << "\n";
             cout << "Pierwszy bitrate: " << demand.bitrates.front()
                  << ", Ostatni bitrate: " << demand.bitrates.back() << "\n";
-            lastDemand = demand; // Zapisz ostatnio wczytane żądanie
+            lastDemand = demand;
         } else {
             cout << "Plik: " << filePath << " - brak danych bitrate.\n";
         }
@@ -247,7 +244,6 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
         file.close();
     }
 
-    // Wyświetl wszystkie bitrate'y z ostatniego wczytanego pliku
     if (!lastDemand.bitrates.empty()) {
         cout << "\nFragment tabeli (bitrate'y z ostatniego pliku):\n";
         for (size_t i = 0; i < lastDemand.bitrates.size(); ++i) {
@@ -262,18 +258,16 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
 int main() {
 
 #ifdef _WIN32
-    SetConsoleOutputCP(65001); // Ustawienie UTF-8 dla konsoli na Windows
+    SetConsoleOutputCP(65001);
 #endif
 
     string demandsFolder = "demands_0";
     int startFile = 0;
-    int endFile = 149; // Możesz zmieniać zakres wczytywanych plików
-    int iterations = 288; // Liczba iteracji
+    int endFile = 275;
+    int iterations = 288;
 
-    // Ustaw pełną precyzję dla wszystkich wyjść
     cout << std::fixed << std::setprecision(15);
 
-    // Wczytaj żądania z folderu w zadanym zakresie
     vector<Demand> demands = loadDemands(demandsFolder, startFile, endFile);
 
     cout << "\nLiczba wczytanych żądań: " << demands.size() << "\n";
@@ -282,15 +276,12 @@ int main() {
         cout << "Liczba iteracji bitrate: " << demand.bitrates.size() << "\n";
     }
 
-    // Wczytaj topologię sieci
     string networkFile = "pol12.net";
     Network network = loadNetwork(networkFile);
 
-    // Uruchom algorytm zachłanny
     int totalTransceivers = greedyAllocation(network, demands, iterations);
 
-    cout << "\nCałkowita liczba transceiverów: " << totalTransceivers << "\n";
+    cout << "\nŚrednia liczba transceiverów: " << totalTransceivers/288 << "\n";
 
     return 0;
 }
-
