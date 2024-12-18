@@ -4,6 +4,12 @@
 #include <string>
 #include <filesystem>
 #include <iomanip>
+#include <algorithm> // Do sortowania
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 
 using namespace std;
 
@@ -34,6 +40,107 @@ struct Network {
           distanceMatrix(nodes, vector<int>(nodes, 0)),
           routingPaths(nodes, vector<vector<Path>>(nodes)) {}
 };
+
+// Struktura reprezentująca kanał optyczny
+struct OpticalChannel {
+    int source;                 // Węzeł źródłowy
+    int destination;            // Węzeł docelowy
+    double capacity;            // Dostępna pojemność kanału
+    bool active = false;        // Czy kanał jest aktywny
+
+    OpticalChannel(int src, int dest, double cap)
+        : source(src), destination(dest), capacity(cap), active(true) {}
+};
+
+struct Modulation {
+    string type;       // Typ modulacji (np. QPSK, 16-QAM)
+    double maxDistance; // Maksymalna odległość w km (0 = bez limitu)
+    double bitrate;     // Bitrate w Gbps
+    int slots;          // Wymagana liczba slotów
+
+    Modulation(string t, double dist, double bit, int s)
+        : type(t), maxDistance(dist), bitrate(bit), slots(s) {}
+};
+
+vector<Modulation> modulationTable = {
+    {"QPSK", 0.0, 200.0, 6},      // QPSK: bez limitu odległości, 200 Gbps, 6 slotów
+    {"8-QAM", 0.0, 400.0, 9},    // 8-QAM: bez limitu odległości, 400 Gbps, 9 slotów
+    {"16-QAM", 800.0, 400.0, 6}, // 16-QAM: do 800 km, 400 Gbps, 6 slotów
+    {"16-QAM", 1600.0, 600.0, 9},// 16-QAM: do 1600 km, 600 Gbps, 9 slotów
+    {"32-QAM", 200.0, 800.0, 9}  // 32-QAM: do 200 km, 800 Gbps, 9 slotów
+};
+
+// Funkcja zachłanna do obsługi żądań
+int greedyAllocation(const Network& network, vector<Demand>& demands, int iterations) {
+    vector<OpticalChannel> channels; // Lista kanałów optycznych
+    int totalTransceivers = 0;       // Liczba aktywnych transceiverów
+
+    // Tabela modulacji
+    vector<Modulation> modulationTable = {
+        {"QPSK", 0.0, 200.0, 6},      // QPSK: bez limitu odległości, 200 Gbps, 6 slotów
+        {"8-QAM", 0.0, 400.0, 9},     // 8-QAM: bez limitu odległości, 400 Gbps, 9 slotów
+        {"16-QAM", 800.0, 400.0, 6},  // 16-QAM: do 800 km, 400 Gbps, 6 slotów
+        {"16-QAM", 1600.0, 600.0, 9}, // 16-QAM: do 1600 km, 600 Gbps, 9 slotów
+        {"32-QAM", 200.0, 800.0, 9}   // 32-QAM: do 200 km, 800 Gbps, 9 slotów
+    };
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        cout << "Iteracja: " << iter + 1 << "\n";
+
+        // Obsługa żądań w iteracji
+        for (auto& demand : demands) {
+            double distance = network.distanceMatrix[demand.source][demand.destination];
+            double bitrate = demand.bitrates[iter];
+            bool allocated = false;
+
+            // Znajdź odpowiedni format modulacji
+            Modulation selectedModulation{"", 0.0, 0.0, 0};
+            for (const auto& modulation : modulationTable) {
+                if ((modulation.maxDistance == 0.0 || distance <= modulation.maxDistance) &&
+                    bitrate <= modulation.bitrate) {
+                    selectedModulation = modulation;
+                    break;
+                }
+            }
+
+            if (selectedModulation.type.empty()) {
+                cerr << "Brak dostępnej modulacji dla żądania od " << demand.source
+                     << " do " << demand.destination << " (bitrate: " << bitrate
+                     << " Gbps, odległość: " << distance << " km)\n";
+                continue;
+            }
+
+            // Sprawdź istniejące kanały i przypisz żądanie, jeśli jest miejsce
+            for (auto& channel : channels) {
+                if (channel.source == demand.source && channel.destination == demand.destination &&
+                    channel.capacity >= bitrate) {
+                    channel.capacity -= bitrate; // Zaktualizuj pojemność kanału
+                    allocated = true;
+                    break; // Jeśli znaleziono odpowiedni kanał, nie tworzymy nowego
+                }
+            }
+
+            // Jeśli nie znaleziono kanału, utwórz nowy
+            if (!allocated) {
+                // Tworzenie nowego kanału tylko wtedy, gdy żadne inne nie spełnia wymagań
+                OpticalChannel newChannel(demand.source, demand.destination, selectedModulation.bitrate);
+                newChannel.capacity -= bitrate;
+                channels.push_back(newChannel);
+                totalTransceivers += 2; // Dwa nowe transceivery
+            }
+        }
+
+        // Usuń puste kanały
+        channels.erase(remove_if(channels.begin(), channels.end(),
+                                 [](const OpticalChannel& channel) { return channel.capacity <= 0.0; }),
+                       channels.end());
+
+        // Wyświetl aktywne kanały
+        cout << "Liczba aktywnych kanałów po iteracji " << iter + 1 << ": " << channels.size() << "\n";
+    }
+
+    return totalTransceivers;
+}
 
 
 // Funkcja wczytująca topologię z pliku .net
@@ -153,9 +260,15 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
 
 // Funkcja main
 int main() {
+
+#ifdef _WIN32
+    SetConsoleOutputCP(65001); // Ustawienie UTF-8 dla konsoli na Windows
+#endif
+
     string demandsFolder = "demands_0";
     int startFile = 0;
-    int endFile = 150; // Możesz zmieniać zakres wczytywanych plików
+    int endFile = 149; // Możesz zmieniać zakres wczytywanych plików
+    int iterations = 288; // Liczba iteracji
 
     // Ustaw pełną precyzję dla wszystkich wyjść
     cout << std::fixed << std::setprecision(15);
@@ -165,9 +278,18 @@ int main() {
 
     cout << "\nLiczba wczytanych żądań: " << demands.size() << "\n";
     for (const auto& demand : demands) {
-        cout << "Źródło: " << demand.source << ", Cel: " << demand.destination << "\n";
+        cout << "Start: " << demand.source << ", Cel: " << demand.destination << "\n";
         cout << "Liczba iteracji bitrate: " << demand.bitrates.size() << "\n";
     }
+
+    // Wczytaj topologię sieci
+    string networkFile = "pol12.net";
+    Network network = loadNetwork(networkFile);
+
+    // Uruchom algorytm zachłanny
+    int totalTransceivers = greedyAllocation(network, demands, iterations);
+
+    cout << "\nCałkowita liczba transceiverów: " << totalTransceivers << "\n";
 
     return 0;
 }
