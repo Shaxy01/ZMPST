@@ -261,9 +261,10 @@ int main() {
     SetConsoleOutputCP(65001);
 #endif
 
-    string demandsFolder = "demands_0";
+    //string demandsFolder = "POL12/demands_9";
+    string demandsFolder = "US26/demands_0";
     int startFile = 0;
-    int endFile = 275;
+    int endFile = 99;
     int iterations = 288;
 
     cout << std::fixed << std::setprecision(15);
@@ -276,7 +277,8 @@ int main() {
         cout << "Liczba iteracji bitrate: " << demand.bitrates.size() << "\n";
     }
 
-    string networkFile = "pol12.net";
+    //string networkFile = "pol12.net";
+    string networkFile = "us26.net";
     Network network = loadNetwork(networkFile);
 
     int totalTransceivers = greedyAllocation(network, demands, iterations);
