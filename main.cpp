@@ -230,7 +230,7 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
                 cerr << "Nieprawidłowa wartość bitrate w pliku: " << filePath << endl;
             }
         }
-
+/*
         if (!demand.bitrates.empty()) {
             cout << "Plik: " << filePath << "\n";
             cout << "Pierwszy bitrate: " << demand.bitrates.front()
@@ -239,18 +239,18 @@ vector<Demand> loadDemands(const string& folderPath, int startFile, int endFile)
         } else {
             cout << "Plik: " << filePath << " - brak danych bitrate.\n";
         }
-
+*/
         demands.push_back(demand);
         file.close();
     }
-
+/*
     if (!lastDemand.bitrates.empty()) {
         cout << "\nFragment tabeli (bitrate'y z ostatniego pliku):\n";
         for (size_t i = 0; i < lastDemand.bitrates.size(); ++i) {
             cout << "Iteracja " << i + 1 << ": " << lastDemand.bitrates[i] << "\n";
         }
     }
-
+*/
     return demands;
 }
 
@@ -261,8 +261,8 @@ int main() {
     SetConsoleOutputCP(65001);
 #endif
 
-    //string demandsFolder = "POL12/demands_9";
-    string demandsFolder = "US26/demands_0";
+    string demandsFolder = "POL12/demands_0";
+    //string demandsFolder = "US26/demands_0";
     int startFile = 0;
     int endFile = 99;
     int iterations = 288;
@@ -271,19 +271,20 @@ int main() {
 
     vector<Demand> demands = loadDemands(demandsFolder, startFile, endFile);
 
+    /*
     cout << "\nLiczba wczytanych żądań: " << demands.size() << "\n";
     for (const auto& demand : demands) {
         cout << "Start: " << demand.source << ", Cel: " << demand.destination << "\n";
         cout << "Liczba iteracji bitrate: " << demand.bitrates.size() << "\n";
     }
-
-    //string networkFile = "pol12.net";
-    string networkFile = "us26.net";
+    */
+    string networkFile = "pol12.net";
+    //string networkFile = "us26.net";
     Network network = loadNetwork(networkFile);
 
     int totalTransceivers = greedyAllocation(network, demands, iterations);
 
-    cout << "\nŚrednia liczba transceiveróww: " << totalTransceivers/288 << "\n";
+    cout << "\nŚrednia liczba transceiverów: " << totalTransceivers/288 << "\n";
 
     return 0;
 }
